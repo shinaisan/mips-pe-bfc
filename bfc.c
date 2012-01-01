@@ -499,7 +499,7 @@ int main(int argc, char *argv[]) {
     FILE *src_file = NULL;
     FILE *exe_file = NULL;
     char *src_buf = NULL;
-    int ret;
+    int ret = 0;
 
     if (argc < 2) {
         printf("[USAGE] %s <bf file name>\n", argv[0]);
@@ -545,7 +545,7 @@ int main(int argc, char *argv[]) {
         free(src_buf);
     }
 
-    return (0);
+    return (ret);
 }
 
 #else  /* TEST_BFC */
