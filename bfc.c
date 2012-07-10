@@ -12,7 +12,7 @@
 typedef uint32_t inst_t;
 
 /* Configuration start. */
-static char bin[16 * 1024] = {0};
+static char text[16 * 1024] = {0};
 #define STACK_SIZE 32
 inst_t addr_putchar = 0x00405044;
 inst_t addr_getchar = 0x00405048;
@@ -363,7 +363,7 @@ void write_pe_header(FILE *fp) {
     IMAGE_OPTIONAL_HEADER32 opt = {
         0x010b,			/*  Magic  */
         6, 0,			/*  MajorLinkerVersion, MinorLinkerVersion  */
-        sizeof(bin),	/*  SizeOfCode  */
+        sizeof(text),	/*  SizeOfCode  */
         0, 				/*  SizeOfInitializedData  */
         65536,			/*  SizeOfUninitializedData  */
         0x1000,			/*  AddressOfEntryPoint  */
@@ -401,9 +401,9 @@ void write_pe_header(FILE *fp) {
 
     memset(sects, 0, sizeof(sects));
     strcpy((char *)sects[0].Name, ".text");
-    sects[0].Misc.VirtualSize = sizeof(bin);
+    sects[0].Misc.VirtualSize = sizeof(text);
     sects[0].VirtualAddress = 0x1000;
-    sects[0].SizeOfRawData = sizeof(bin);
+    sects[0].SizeOfRawData = sizeof(text);
     sects[0].PointerToRawData = 0x400;
     sects[0].Characteristics = 0x60500060;
     strcpy((char *)sects[1].Name, ".idata");
@@ -467,7 +467,7 @@ void make_exe_path(char *src, char *dest) {
 int bf_pegen(FILE *out) {
     write_pe_header(out);
     write_idata(out);
-    fwrite(bin, sizeof(bin), 1, out);
+    fwrite(text, 1, sizeof(text), out);
     return (0);
 }
 
@@ -529,7 +529,7 @@ int main(int argc, char *argv[]) {
         goto main_end;
     }
 
-    bf_compile(src_buf, (inst_t *)(&bin[0]), sizeof(bin) / sizeof(inst_t));
+    bf_compile(src_buf, (inst_t *)(&text[0]), sizeof(text) / sizeof(inst_t));
     
     bf_pegen(exe_file);
 
