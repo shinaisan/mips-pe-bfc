@@ -14,6 +14,10 @@ typedef uint32_t inst_t;
 /* Configuration start. */
 static char text[16 * 1024] = {0};
 #define STACK_SIZE 32
+inst_t addr_image = 0x00400000;
+inst_t rva_text_base = 0x1000;
+inst_t rva_idata_base = 0x5000;
+inst_t rva_data_base = 0x6000;
 inst_t addr_putchar = 0x00405044;
 inst_t addr_getchar = 0x00405048;
 inst_t addr_data = 0x00406000;
@@ -366,10 +370,10 @@ void write_pe_header(FILE *fp) {
         sizeof(text),	/*  SizeOfCode  */
         0, 				/*  SizeOfInitializedData  */
         65536,			/*  SizeOfUninitializedData  */
-        0x1000,			/*  AddressOfEntryPoint  */
-        0x1000,			/*  BaseOfCode  */
-        0x6000,			/*  BaseOfData  */
-        0x00400000,		/*  ImageBase  */
+        rva_text_base,	/*  AddressOfEntryPoint  */
+        rva_text_base,	/*  BaseOfCode  */
+        rva_data_base,	/*  BaseOfData  */
+        addr_image,		/*  ImageBase  */
         0x1000,			/*  SectionAlignment  */
         0x0200,			/*  FileAlignment  */
         4, 0,			/*  MajorOperatingSystemVersion, MinorOperatingSystemVersion  */
@@ -395,26 +399,26 @@ void write_pe_header(FILE *fp) {
     fwrite(&coff, sizeof(coff), 1, fp);
 
     memset(opt.DataDirectory, 0, sizeof(opt.DataDirectory));
-    opt.DataDirectory[1].VirtualAddress = 0x5000; /* import table */
+    opt.DataDirectory[1].VirtualAddress = rva_idata_base; /* import table */
     opt.DataDirectory[1].Size = 100;
     fwrite(&opt, sizeof(opt), 1, fp);
 
     memset(sects, 0, sizeof(sects));
     strcpy((char *)sects[0].Name, ".text");
     sects[0].Misc.VirtualSize = sizeof(text);
-    sects[0].VirtualAddress = 0x1000;
+    sects[0].VirtualAddress = rva_text_base;
     sects[0].SizeOfRawData = sizeof(text);
     sects[0].PointerToRawData = 0x400;
     sects[0].Characteristics = 0x60500060;
     strcpy((char *)sects[1].Name, ".idata");
     sects[1].Misc.VirtualSize = 100;
-    sects[1].VirtualAddress = 0x5000;
+    sects[1].VirtualAddress = rva_idata_base;
     sects[1].SizeOfRawData = 512;
     sects[1].PointerToRawData = 0x200;
     sects[1].Characteristics = 0xc0300040;
     strcpy((char *)sects[2].Name, ".bss");
     sects[2].Misc.VirtualSize = 65536;
-    sects[2].VirtualAddress = 0x6000;
+    sects[2].VirtualAddress = rva_data_base;
     sects[2].Characteristics = 0xc0400080;
     fwrite(sects, sizeof(sects), 1, fp);
 
