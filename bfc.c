@@ -13,16 +13,19 @@ typedef uint32_t inst_t;
 
 /* Configuration start. */
 static char text[16 * 1024] = {0};
+static char idata[512] = {0};
 #define STACK_SIZE 32
 inst_t addr_image = 0x00400000;
 inst_t rva_text_base = 0x1000;
 inst_t rva_idata_base = 0x5000;
 inst_t rva_data_base = 0x6000;
-inst_t addr_putchar = 0x00405044;
-inst_t addr_getchar = 0x00405048;
 inst_t addr_data = 0x00406000;
 /* Configuration end. */
 
+/* These are determined at run time. */
+static int idata_size = 0;
+inst_t addr_putchar = 0;
+inst_t addr_getchar = 0;
 
 /* A total of 32 registers. */
 typedef enum {
@@ -425,7 +428,10 @@ void write_pe_header(FILE *fp) {
     write_padding(fp, 0x200 - ftell(fp));
 }
 
-void write_idata(FILE *fp) {
+/* Should be called before write_pe_header(). */
+int make_idata(char *buf) {
+    int size = 0;
+    int cpysize = 0;
     int idt[] = {
         // IDT 1
         0x5028, 0, 0, 0x5034, 0x5044,
@@ -434,22 +440,51 @@ void write_idata(FILE *fp) {
     };
     int ilt_iat[] = {0x5050, 0x505a, 0};
 
-    fwrite(idt, sizeof(idt), 1 ,fp);
-    fwrite(ilt_iat, sizeof(ilt_iat), 1, fp); // ILT
+    addr_putchar = addr_image + 0x5044;
+    addr_getchar = addr_putchar + 4;
 
-    write_string(fp, 16, "msvcrt.dll");
+    // IDT
+    cpysize = sizeof(idt);
+    memcpy((void *)buf, (void *)&idt[0], cpysize);
+    buf += cpysize;
+    size += cpysize;
 
-    fwrite(ilt_iat, sizeof(ilt_iat), 1, fp); // IAT
+    // ILT
+    cpysize = sizeof(ilt_iat);
+    memcpy((void *)buf, (void *)&ilt_iat[0], cpysize);
+    buf += cpysize;
+    size += cpysize;
+
+    // DLL
+    cpysize = 16;
+    memset(buf, 0, cpysize);
+    strcpy(buf, "msvcrt.dll");
+    buf += cpysize;
+    size += cpysize;
+
+    // IAT
+    cpysize = sizeof(ilt_iat);
+    memcpy((void *)buf, (void *)&ilt_iat[0], cpysize);
+    buf += cpysize;
+    size += cpysize;
 
     // putchar
-    write_short(fp, 0);
-    write_string(fp, 8, "putchar");
+    cpysize = 10;
+    memset(buf, 0, cpysize);
+    buf += 2;
+    strcpy(buf, "putchar");
+    buf += (cpysize - 2);
+    size += cpysize;
 
     // getchar
-    write_short(fp, 0);
-    write_string(fp, 8, "getchar");
+    cpysize = 10;
+    memset(buf, 0, cpysize);
+    buf += 2;
+    strcpy(buf, "getchar");
+    buf += (cpysize - 2);
+    size += cpysize;
 
-    write_padding(fp, 0x400 - ftell(fp));
+    return (idata_size = size);
 }
 
 void make_exe_path(char *src, char *dest) {
@@ -468,9 +503,12 @@ void make_exe_path(char *src, char *dest) {
     strcpy(&dest[len], ".exe");
 }
 
-int bf_pegen(FILE *out) {
+int bf_pegen(FILE *out, char *src_buf) {
+    memset(&idata[0], 0, sizeof(idata));
+    make_idata(idata);
     write_pe_header(out);
-    write_idata(out);
+    fwrite(&idata[0], 1, sizeof(idata), out);
+    bf_compile(src_buf, (inst_t *)(&text[0]), sizeof(text) / sizeof(inst_t));
     fwrite(text, 1, sizeof(text), out);
     return (0);
 }
@@ -533,9 +571,7 @@ int main(int argc, char *argv[]) {
         goto main_end;
     }
 
-    bf_compile(src_buf, (inst_t *)(&text[0]), sizeof(text) / sizeof(inst_t));
-    
-    bf_pegen(exe_file);
+    bf_pegen(exe_file, src_buf);
 
  main_end:
 
@@ -952,6 +988,7 @@ void test_compile_echo() {
 }
 
 int main(int argc, char *argv[]) {
+    make_idata(idata);
     test_compile_empty();
     test_compile_basic();
     test_compile_jump1();
