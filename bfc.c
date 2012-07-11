@@ -343,10 +343,6 @@ void write_string(FILE *fp, int len, char *str) {
     }
 }
 
-void write_short(FILE *fp, short v) {
-    fwrite(&v, sizeof(v), 1, fp);
-}
-
 void write_pe_header(FILE *fp) {
     static unsigned char stub[] = {
         /* 00-3b: DOS Header */
