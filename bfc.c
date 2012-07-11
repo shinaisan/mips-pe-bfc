@@ -19,13 +19,13 @@ inst_t addr_image = 0x00400000;
 inst_t rva_text_base = 0x1000;
 inst_t rva_idata_base = 0x5000;
 inst_t rva_data_base = 0x6000;
-inst_t addr_data = 0x00406000;
 /* Configuration end. */
 
 /* These are determined at run time. */
 static int idata_size = 0;
 inst_t addr_putchar = 0;
 inst_t addr_getchar = 0;
+inst_t addr_data = 0;
 
 /* A total of 32 registers. */
 typedef enum {
@@ -343,7 +343,7 @@ void write_string(FILE *fp, int len, char *str) {
     }
 }
 
-void write_pe_header(FILE *fp) {
+void write_pe_header(FILE *fp, int ce_flag) {
     static unsigned char stub[] = {
         /* 00-3b: DOS Header */
         'M',  'Z',  0x50, 0x00, 0x02, 0x00, 0x00, 0x00, 0x04, 0x00, 0x0f, 0x00, 0xff, 0xff, 0x00, 0x00,
@@ -393,8 +393,12 @@ void write_pe_header(FILE *fp) {
     };
     IMAGE_SECTION_HEADER sects[3];
 
-    fwrite(stub, sizeof(stub), 1, fp);
+    if (ce_flag) {
+        opt.MajorSubsystemVersion = 2;
+        opt.Subsystem = 9;
+    }
 
+    fwrite(stub, sizeof(stub), 1, fp);
     fwrite(&coff, sizeof(coff), 1, fp);
 
     memset(opt.DataDirectory, 0, sizeof(opt.DataDirectory));
@@ -425,7 +429,7 @@ void write_pe_header(FILE *fp) {
 }
 
 /* Should be called before write_pe_header(). */
-int make_idata(char *buf) {
+int make_idata(char *buf, char *dll_name, int dll_name_size) {
     int size = 0;
     int cpysize = 0;
     int idt[5 * 2];             /* For IDT-1 and null-terminator. */
@@ -437,7 +441,7 @@ int make_idata(char *buf) {
     memset(&idt[0], 0, sizeof(idt));
     idt[0] = rva_idata_base + sizeof(idt);
     idt[3] = idt[0] + sizeof(ilt_iat); /* -> DLL */
-    idt[4] = idt[3] + 16;              /* -> IAT */
+    idt[4] = idt[3] + dll_name_size;   /* -> IAT */
 
     memset(&ilt_iat[0], 0, sizeof(ilt_iat));
     ilt_iat[0] = idt[4] + sizeof(ilt_iat);
@@ -461,9 +465,9 @@ int make_idata(char *buf) {
     size += cpysize;
 
     // DLL
-    cpysize = 16;
+    cpysize = dll_name_size;
     memset(buf, 0, cpysize);
-    strcpy(buf, "msvcrt.dll");
+    strcpy(buf, dll_name);
     buf += cpysize;
     size += cpysize;
 
@@ -502,10 +506,20 @@ void make_exe_path(char *src, char *dest) {
     strcpy(&dest[len], ".exe");
 }
 
-int bf_pegen(FILE *out, char *src_buf) {
+int bf_pegen(FILE *out, char *src_buf, int ce_flag) {
+    char *dll_name;
+    if (ce_flag) {
+        addr_image = 0x00010000;
+        dll_name = "coredll.dll";
+    } else {
+        addr_image = 0x00400000;
+        dll_name = "msvcrt.dll";
+    }
+    addr_data = addr_image + rva_data_base;
+
     memset(&idata[0], 0, sizeof(idata));
-    make_idata(idata);
-    write_pe_header(out);
+    make_idata(idata, dll_name, 16);
+    write_pe_header(out, ce_flag);
     fwrite(&idata[0], 1, sizeof(idata), out);
     bf_compile(src_buf, (inst_t *)(&text[0]), sizeof(text) / sizeof(inst_t));
     fwrite(text, 1, sizeof(text), out);
@@ -534,20 +548,50 @@ int bf_read_source(FILE *fp, char **pbuf) {
 
 #ifndef TEST_BFC
 
+int analyze_options(int argc, char *argv[], char **out_bf_file_name, int *out_ce_flag) {
+    int i;
+    char *opt;
+
+    *out_bf_file_name= NULL;
+
+    if (argc < 2) {
+        goto ARGV_ERROR;
+    }
+
+    for (i = 1; i < argc; i++) {
+        opt = argv[i];
+        if (strcmp("-ce", opt) == 0) {
+            *out_ce_flag = 1;
+        } else {
+            *out_bf_file_name = opt;
+        }
+    }
+
+    if (*out_bf_file_name == NULL) {
+        goto ARGV_ERROR;
+    }
+
+    return (0);
+
+ ARGV_ERROR:
+    printf("[USAGE for WinNT] %s <bf file name>\n", argv[0]);
+    printf("[USAGE for WinCE] %s -ce <bf file name>\n", argv[0]);
+    return (-1);
+}
+
 int main(int argc, char *argv[]) {
     char *src_path;
     char exe_path[256];
+    int ce_flag = 0;
     FILE *src_file = NULL;
     FILE *exe_file = NULL;
     char *src_buf = NULL;
     int ret = 0;
 
-    if (argc < 2) {
-        printf("[USAGE] %s <bf file name>\n", argv[0]);
+    if (analyze_options(argc, argv, &src_path, &ce_flag) < 0) {
         return (-1);
     }
 
-    src_path = argv[1];
     make_exe_path(src_path, exe_path);
     
     src_file = fopen(src_path, "rb");
@@ -570,7 +614,7 @@ int main(int argc, char *argv[]) {
         goto main_end;
     }
 
-    bf_pegen(exe_file, src_buf);
+    bf_pegen(exe_file, src_buf, ce_flag);
 
  main_end:
 
