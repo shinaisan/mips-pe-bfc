@@ -399,7 +399,7 @@ void write_pe_header(FILE *fp) {
 
     memset(opt.DataDirectory, 0, sizeof(opt.DataDirectory));
     opt.DataDirectory[1].VirtualAddress = rva_idata_base; /* import table */
-    opt.DataDirectory[1].Size = 100;
+    opt.DataDirectory[1].Size = idata_size;
     fwrite(&opt, sizeof(opt), 1, fp);
 
     memset(sects, 0, sizeof(sects));
@@ -410,7 +410,7 @@ void write_pe_header(FILE *fp) {
     sects[0].PointerToRawData = 0x400;
     sects[0].Characteristics = 0x60500060;
     strcpy((char *)sects[1].Name, ".idata");
-    sects[1].Misc.VirtualSize = 100;
+    sects[1].Misc.VirtualSize = idata_size;
     sects[1].VirtualAddress = rva_idata_base;
     sects[1].SizeOfRawData = 512;
     sects[1].PointerToRawData = 0x200;
@@ -428,15 +428,24 @@ void write_pe_header(FILE *fp) {
 int make_idata(char *buf) {
     int size = 0;
     int cpysize = 0;
-    int idt[] = {
-        // IDT 1
-        0x5028, 0, 0, 0x5034, 0x5044,
-        // IDT (Terminator)
-        0, 0, 0, 0, 0
-    };
-    int ilt_iat[] = {0x5050, 0x505a, 0};
+    int idt[5 * 2];             /* For IDT-1 and null-terminator. */
+    int ilt_iat[3];             /* For putchar, getchar and null-terminator. */
+    static char *names[] = {"putchar", "getchar"};
+    int fcount = 2;             /* The number of functions to import. */
+    int i;
 
-    addr_putchar = addr_image + 0x5044;
+    memset(&idt[0], 0, sizeof(idt));
+    idt[0] = rva_idata_base + sizeof(idt);
+    idt[3] = idt[0] + sizeof(ilt_iat); /* -> DLL */
+    idt[4] = idt[3] + 16;              /* -> IAT */
+
+    memset(&ilt_iat[0], 0, sizeof(ilt_iat));
+    ilt_iat[0] = idt[4] + sizeof(ilt_iat);
+    for (i = 1; i < fcount; i++) {
+        ilt_iat[i] = ilt_iat[i - 1] + (2 + strlen(names[i - 1]) + 1);
+    }
+
+    addr_putchar = addr_image + idt[4];
     addr_getchar = addr_putchar + 4;
 
     // IDT
@@ -464,21 +473,15 @@ int make_idata(char *buf) {
     buf += cpysize;
     size += cpysize;
 
-    // putchar
-    cpysize = 10;
-    memset(buf, 0, cpysize);
-    buf += 2;
-    strcpy(buf, "putchar");
-    buf += (cpysize - 2);
-    size += cpysize;
-
-    // getchar
-    cpysize = 10;
-    memset(buf, 0, cpysize);
-    buf += 2;
-    strcpy(buf, "getchar");
-    buf += (cpysize - 2);
-    size += cpysize;
+    // Functions
+    for (i = 0; i < fcount; i++) {
+        cpysize = (2 + strlen(names[i]) + 1);
+        memset(buf, 0, cpysize);
+        buf += 2;
+        strcpy(buf, names[i]);
+        buf += (cpysize - 2);
+        size += cpysize;
+    }
 
     return (idata_size = size);
 }
